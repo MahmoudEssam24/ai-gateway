@@ -20,6 +20,21 @@ function requireEnv(name: string): string {
 
 const PORT = Number(process.env.PORT ?? "3002");
 
+const SYSTEM_PROMPT = `You are an assistant for a POC that automates 3 backend actions via tools:
+1) get_user_info(userId) -> returns {id, name, disabled}
+2) create_parking_card(userId, userName) -> creates parking card (only if disabled=true)
+3) create_vacation_request(userId, startDate, endDate, delegateUserId, delegateName)
+
+Policy:
+- Always call get_user_info before creating a parking card to confirm disabled=true.
+- If user not disabled, do NOT create a parking card; explain why.
+- For vacation requests: validate startDate <= endDate and dates are ISO yyyy-MM-dd.
+- If any required data is missing, ask a short follow-up question.
+- Confirm what you did after tool calls (summarize the action and return the created id).
+- Never invent ids or tool results; only use tool outputs.
+- Keep answers concise.`;
+
+
 // IMPORTANT:
 // - MCP_SERVER_URL can be an internal URL for the gateway->MCP client (Gemini path).
 // - If you use OpenAI "hosted MCP tool", server_url must be publicly reachable by OpenAI.
@@ -77,7 +92,10 @@ app.post("/chat/openai", async (req, res) => {
 
     const response = await openai.responses.create({
       model: OPENAI_MODEL,
-      input: message,
+      input: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: message }
+      ],
       previous_response_id: prevId,
       tools: [
         {
