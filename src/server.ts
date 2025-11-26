@@ -24,7 +24,7 @@ const PORT = Number(process.env.PORT ?? "3002");
 // - MCP_SERVER_URL can be an internal URL for the gateway->MCP client (Gemini path).
 // - If you use OpenAI "hosted MCP tool", server_url must be publicly reachable by OpenAI.
 //   So set OPENAI_MCP_SERVER_URL to a public https endpoint in real deployments / demos.
-const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? "http://localhost:3001/mcp";
+const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? "https://mcp-server-production-b54a.up.railway.app/mcp";
 const OPENAI_MCP_SERVER_URL = process.env.OPENAI_MCP_SERVER_URL ?? MCP_SERVER_URL;
 
 const OPENAI_API_KEY = requireEnv("OPENAI_API_KEY");
