@@ -72,7 +72,13 @@ function extractTextFromMcpResult(result: any): string {
   return JSON.stringify(result, null, 2);
 }
 
-const allowedTools = ["get_user_info", "create_parking_card", "create_vacation_request"] as const;
+const allowedTools = [
+  "get_user_info",
+  "create_parking_card",
+  "create_vacation_request",
+  "request_house_maid",
+  "request_home_checkup",
+] as const;
 
 /** ---- OpenAI endpoint: Responses API + hosted MCP tool ---- */
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
