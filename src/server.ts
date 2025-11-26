@@ -20,7 +20,7 @@ function requireEnv(name: string): string {
 
 const PORT = Number(process.env.PORT ?? "3002");
 
-const SYSTEM_PROMPT = `You are an assistant for a POC that automates 3 backend actions via tools:
+const SYSTEM_PROMPsT = `You are an assistant for a POC that automates 3 backend actions via tools:
 1) get_user_info(userId) -> returns {id, name, disabled}
 2) create_parking_card(userId, userName) -> creates parking card (only if disabled=true)
 3) create_vacation_request(userId, startDate, endDate, delegateUserId, delegateName)
@@ -82,20 +82,24 @@ const openaiPrevResponseId = new Map<string, string>();
 
 app.post("/chat/openai", async (req, res) => {
   try {
-    const { conversationId, message } = req.body as {
+    const { conversationId, systemPrompt, message } = req.body as {
       conversationId?: string;
+      systemPrompt?: string;
       message: string;
     };
 
     const cid = conversationId ?? "default";
     const prevId = openaiPrevResponseId.get(cid);
 
+    const input = systemPrompt?.trim()
+      ? [
+        { role: "system" as const, content: systemPrompt.trim() },
+        { role: "user" as const, content: message },
+      ]
+      : message;
     const response = await openai.responses.create({
       model: OPENAI_MODEL,
-      input: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: message }
-      ],
+      input,
       previous_response_id: prevId,
       tools: [
         {
