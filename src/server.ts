@@ -72,13 +72,23 @@ function extractTextFromMcpResult(result: any): string {
   return JSON.stringify(result, null, 2);
 }
 
-const allowedTools = [
+export const allowedTools = [
   "get_user_info",
   "create_parking_card",
   "create_vacation_request",
   "request_house_maid",
   "request_home_checkup",
+
+  // Medical Device Aid (POC)
+  "list_assistive_devices",
+  "submit_medical_device_aid_request",
+  "get_medical_device_aid_request",
+  "list_medical_device_aid_requests"
+
 ] as const;
+
+export type AllowedToolName = (typeof allowedTools)[number];
+
 
 /** ---- OpenAI endpoint: Responses API + hosted MCP tool ---- */
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
