@@ -79,15 +79,14 @@ export const allowedTools = [
   "request_house_maid",
   "request_home_checkup",
 
-  // Medical Device Aid (POC)
   "list_assistive_devices",
   "submit_medical_device_aid_request",
   "get_medical_device_aid_request",
-  "list_medical_device_aid_requests"
-
+  "list_medical_device_aid_requests",
 ] as const;
 
 export type AllowedToolName = (typeof allowedTools)[number];
+
 
 
 /** ---- OpenAI endpoint: Responses API + hosted MCP tool ---- */
