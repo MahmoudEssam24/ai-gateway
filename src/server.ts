@@ -12,7 +12,7 @@ function requireEnv(name: string): string {
 const PORT = Number(process.env.PORT ?? "3002");
 
 // MCP server URLs
-// - MCP_SERVER_URL: default/internal URL
+// - MCP_SERVER_URL: default/internal URL (for your own reference)
 // - GROQ_MCP_SERVER_URL: public URL that Groq can reach
 const MCP_SERVER_URL =
   process.env.MCP_SERVER_URL ??
@@ -26,11 +26,11 @@ const GROQ_API_KEY = requireEnv("GROQ_API_KEY");
 const GROQ_MODEL =
   process.env.GROQ_MODEL ?? "meta-llama/llama-4-scout-17b-16e-instruct";
 
-// Optional default system prompt (you can override per request)
+// Optional default system prompt (you still override it per persona)
 const DEFAULT_SYSTEM_PROMPT = `You are an assistant for a POC that automates backend actions via MCP tools.
 Use the tools to help the user. Ask for missing data one-by-one and always ask before executing any action.`;
 
-// Allowed tools in the MCP server
+// Allowed tools in your MCP server (must match MCP server tools)
 export const allowedTools = [
   "get_user_info",
   "create_parking_card",
@@ -49,13 +49,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Groq Responses API using OpenAI client (Groq docs pattern)
+// Groq Responses API, using OpenAI client with Groq baseURL
 const groq = new OpenAI({
   apiKey: GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-// Simple chat history per conversationId, with only
+// Simple chat history per conversationId, only chat-style messages:
 // { role: "system" | "user" | "assistant", content: string }
 type Role = "system" | "user" | "assistant";
 type ChatMessage = { role: Role; content: string };
@@ -67,6 +67,7 @@ const conversations = new Map<string, ChatMessage[]>();
  * Body: { conversationId?: string; systemPrompt?: string; message: string }
  *
  * Uses Groq Responses API + remote MCP tools.
+ * We keep the route name `/chat/openai` so the frontend doesn’t need to change.
  */
 app.post("/chat/openai", async (req, res) => {
   try {
@@ -81,7 +82,7 @@ app.post("/chat/openai", async (req, res) => {
     // Get or initialize history
     let history = conversations.get(cid) ?? [];
 
-    // First turn: add system prompt (either request-specific or default)
+    // First turn: add system prompt (persona prompt) or default
     if (history.length === 0) {
       const sys = (systemPrompt ?? DEFAULT_SYSTEM_PROMPT).trim();
       if (sys) {
@@ -89,28 +90,24 @@ app.post("/chat/openai", async (req, res) => {
       }
     }
 
-    // Add user message
+    // Add the new user message
     history.push({ role: "user", content: message });
 
-    // Build MCP tool config for Groq
+    // MCP tool config for Groq (NO headers here — Groq rejected that)
     const mcpTool = {
       type: "mcp",
       server_label: "disabled-services",
       server_url: GROQ_MCP_SERVER_URL,
       allowed_tools: [...allowedTools],
       require_approval: "never",
-      headers: {
-        // Important: your MCP server requires BOTH types in Accept
-        accept: "application/json, text/event-stream",
-      },
-    } as any; // cast to any to avoid overly strict SDK typing
+    } as any;
 
     // Call Groq Responses API
     const response = await groq.responses.create({
       model: GROQ_MODEL,
       input: history,
       tools: [mcpTool],
-      // Groq doesn't support previous_response_id or store
+      // Groq doesn’t support previous_response_id or store
     });
 
     const text = response.output_text ?? "";
