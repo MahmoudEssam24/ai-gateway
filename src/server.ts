@@ -3,7 +3,7 @@ import cors from "cors";
 import Groq from "groq-sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import "dotenv/config"; // Loads .env file
+
 
 // --- Configuration ---
 const PORT = Number(process.env.PORT ?? "3002");
