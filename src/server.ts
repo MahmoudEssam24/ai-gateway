@@ -2,9 +2,8 @@
 import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
+import Groq from "groq-sdk"; // Import Groq SDK
 import {
-  GoogleGenAI,
-  FunctionCallingConfigMode,
   Type,
   type FunctionDeclaration,
 } from "@google/genai";
@@ -20,25 +19,23 @@ function requireEnv(name: string): string {
 
 const PORT = Number(process.env.PORT ?? "3002");
 
-
-// IMPORTANT:
-// - MCP_SERVER_URL can be an internal URL for the gateway->MCP client (Gemini path).
-// - If you use OpenAI "hosted MCP tool", server_url must be publicly reachable by OpenAI.
-//   So set OPENAI_MCP_SERVER_URL to a public https endpoint in real deployments / demos.
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? "https://mcp-server-production-b54a.up.railway.app/mcp";
 const OPENAI_MCP_SERVER_URL = process.env.OPENAI_MCP_SERVER_URL ?? MCP_SERVER_URL;
 
-const OPENAI_API_KEY = requireEnv("OPENAI_API_KEY");
-// const GEMINI_API_KEY = requireEnv("GEMINI_API_KEY");
+// API Keys
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY; // Optional if only using Groq
+const GROQ_API_KEY = requireEnv("GROQ_API_KEY");   // REQUIRED now
 
-const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-5.1";
-// const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-1.5-pro";
+// Models
+const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
+// Using the specific model you requested
+const GROQ_MODEL = process.env.GROQ_MODEL ?? "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-/** ---- MCP client (used for Gemini tool execution) ---- */
+/** ---- MCP client (Shared) ---- */
 let mcpClient: Client | null = null;
 
 async function getMcpClient(): Promise<Client> {
@@ -58,211 +55,195 @@ function extractTextFromMcpResult(result: any): string {
   return JSON.stringify(result, null, 2);
 }
 
-export const allowedTools = [
-  "get_user_info",
-  "create_parking_card",
-  "create_vacation_request",
-  "request_house_maid",
-  "request_home_checkup",
-
-  "list_assistive_devices",
-  "submit_medical_device_aid_request",
-  "get_medical_device_aid_request",
-  "list_medical_device_aid_requests",
-] as const;
-
-export type AllowedToolName = (typeof allowedTools)[number];
-
-
-
-/** ---- OpenAI endpoint: Responses API + hosted MCP tool ---- */
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-
-// naive in-memory conversation state for POC
-const openaiPrevResponseId = new Map<string, string>();
-
-app.post("/chat/openai", async (req, res) => {
-  try {
-    const { conversationId, systemPrompt, message } = req.body as {
-      conversationId?: string;
-      systemPrompt?: string;
-      message: string;
-    };
-
-    const cid = conversationId ?? "default";
-    const prevId = openaiPrevResponseId.get(cid);
-
-    const input = systemPrompt?.trim()
-      ? [
-        { role: "system" as const, content: systemPrompt.trim() },
-        { role: "user" as const, content: message },
-      ]
-      : message;
-    const response = await openai.responses.create({
-      model: OPENAI_MODEL,
-      input,
-      previous_response_id: prevId,
-      tools: [
-        {
-          type: "mcp",
-          server_label: "disabled-services",
-          server_url: OPENAI_MCP_SERVER_URL,
-          allowed_tools: [...allowedTools],
-          require_approval: "never",
-          headers: { Accept: "application/json, text/event-stream" },
+/** * ---- Tool Definitions (Groq/OpenAI Format) ---- 
+ * We map your existing logic to standard JSON Schema for Groq 
+ */
+const tools: Groq.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "get_user_info",
+      description: "Retrieve user info (including disabled flag) by userId.",
+      parameters: {
+        type: "object",
+        properties: {
+          userId: { type: "string" },
         },
-      ],
-      store: true,
+        required: ["userId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_parking_card",
+      description: "Create a parking card for a disabled user.",
+      parameters: {
+        type: "object",
+        properties: {
+          userId: { type: "string" },
+          userName: { type: "string" },
+        },
+        required: ["userId", "userName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_vacation_request",
+      description: "Create a vacation request (ISO dates yyyy-MM-dd).",
+      parameters: {
+        type: "object",
+        properties: {
+          userId: { type: "string" },
+          startDate: { type: "string" },
+          endDate: { type: "string" },
+          delegateUserId: { type: "string" },
+          delegateName: { type: "string" },
+        },
+        required: ["userId", "startDate", "endDate", "delegateUserId", "delegateName"],
+      },
+    },
+  },
+  // Add other tools here (house_maid, etc) as needed
+];
+
+
+/** ---- Groq Endpoint ---- */
+const groq = new Groq({ apiKey: GROQ_API_KEY });
+
+app.post("/chat/groq", async (req, res) => {
+  try {
+    const { message, systemPrompt } = req.body;
+
+    // 1. Build initial messages
+    const messages: Groq.Chat.ChatCompletionMessageParam[] = [];
+    if (systemPrompt) {
+      messages.push({ role: "system", content: systemPrompt });
+    }
+    messages.push({ role: "user", content: message });
+
+    // 2. First call to Groq (ask for intent/tools)
+    // Note: We do NOT stream here to simplify the tool-loop logic
+    const runner = await groq.chat.completions.create({
+      model: GROQ_MODEL,
+      messages: messages,
+      tools: tools,
+      tool_choice: "auto",
+      temperature: 1,
+      max_completion_tokens: 1024,
+      top_p: 1,
     });
 
-    openaiPrevResponseId.set(cid, response.id);
+    const responseMessage = runner.choices[0].message;
 
-    res.json({
-      conversationId: cid,
-      text: response.output_text,
-      previous_response_id: response.id,
-    });
+    // 3. Check if Groq wants to run tools
+    if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+      // Add the model's request to history
+      messages.push(responseMessage);
+
+      const client = await getMcpClient();
+
+      // 4. Loop through tool calls and execute via MCP
+      for (const toolCall of responseMessage.tool_calls) {
+        const functionName = toolCall.function.name;
+        const functionArgs = JSON.parse(toolCall.function.arguments);
+
+        console.log(`[Groq] Calling MCP tool: ${functionName}`);
+
+        try {
+          // Execute via MCP Client
+          const mcpResult = await client.callTool({
+            name: functionName,
+            arguments: functionArgs,
+          });
+
+          const toolOutput = extractTextFromMcpResult(mcpResult);
+
+          // Append tool result to history
+          messages.push({
+            tool_call_id: toolCall.id,
+            role: "tool",
+            content: toolOutput,
+          });
+        } catch (error: any) {
+          console.error(`Error executing ${functionName}:`, error);
+          messages.push({
+            tool_call_id: toolCall.id,
+            role: "tool",
+            content: JSON.stringify({ error: error.message }),
+          });
+        }
+      }
+
+      // 5. Second call to Groq (with tool results)
+      const finalResponse = await groq.chat.completions.create({
+        model: GROQ_MODEL,
+        messages: messages,
+      });
+
+      return res.json({
+        text: finalResponse.choices[0].message.content,
+      });
+    }
+
+    // No tools called, just return text
+    res.json({ text: responseMessage.content });
+
   } catch (err: any) {
-    console.error(err);
-    res.status(500).json({ error: err?.message || "OpenAI error" });
+    console.error("Groq Error:", err);
+    res.status(500).json({ error: err?.message || "Groq error" });
   }
 });
 
-/** ---- Gemini endpoint: function calling + execute via MCP client ---- */
-// const genai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
+/** ---- Existing OpenAI Endpoint (Optional / Fallback) ---- */
+// You can keep this if you still want to support OpenAI
+if (OPENAI_API_KEY) {
+  const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+  const openaiPrevResponseId = new Map<string, string>();
 
-const getUserInfoDecl: FunctionDeclaration = {
-  name: "get_user_info",
-  description: "Retrieve user info (including disabled flag) by userId.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      userId: { type: Type.STRING },
-    },
-    required: ["userId"],
-  },
-};
+  app.post("/chat/openai", async (req, res) => {
+    try {
+      const { conversationId, systemPrompt, message } = req.body;
+      const cid = conversationId ?? "default";
+      const prevId = openaiPrevResponseId.get(cid);
 
-const createParkingCardDecl: FunctionDeclaration = {
-  name: "create_parking_card",
-  description: "Create a parking card for a disabled user (requires userId and userName).",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      userId: { type: Type.STRING },
-      userName: { type: Type.STRING },
-    },
-    required: ["userId", "userName"],
-  },
-};
+      const input = systemPrompt?.trim()
+        ? [
+          { role: "system" as const, content: systemPrompt.trim() },
+          { role: "user" as const, content: message },
+        ]
+        : message;
 
-const createVacationDecl: FunctionDeclaration = {
-  name: "create_vacation_request",
-  description: "Create a vacation request (ISO dates yyyy-MM-dd + delegate userId & name).",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      userId: { type: Type.STRING },
-      startDate: { type: Type.STRING },
-      endDate: { type: Type.STRING },
-      delegateUserId: { type: Type.STRING },
-      delegateName: { type: Type.STRING },
-    },
-    required: ["userId", "startDate", "endDate", "delegateUserId", "delegateName"],
-  },
-};
-
-// const geminiTools = [{ functionDeclarations: [getUserInfoDecl, createParkingCardDecl, createVacationDecl] }];
-
-// app.post("/chat/gemini", async (req, res) => {
-//   try {
-//     const { message } = req.body as { message: string };
-
-//     // 1) Ask Gemini (AUTO tool selection)
-//     const first = await genai.models.generateContent({
-//       model: GEMINI_MODEL,
-//       contents: [{ role: "user", parts: [{ text: message }] }],
-//       config: {
-//         toolConfig: {
-//           functionCallingConfig: {
-//             mode: FunctionCallingConfigMode.AUTO, // ✅ enum
-//           },
-//         },
-//         tools: geminiTools,
-//       },
-//     });
-
-//     // In this SDK version, these are properties/getters (no parentheses).
-//     const functionCalls = first.functionCalls ?? [];
-//     if (functionCalls.length === 0) {
-//       return res.json({ text: first.text ?? "" });
-//     }
-
-//     // 2) Execute tool calls via MCP
-//     const client = await getMcpClient();
-
-//     const modelParts = functionCalls.map((fc: any) => ({ functionCall: fc }));
-
-//     const toolParts: any[] = [];
-
-//     for (const fc of functionCalls as any[]) {
-//       const toolName: string | undefined = fc?.name;
-//       if (!toolName) {
-//         toolParts.push({
-//           functionResponse: {
-//             name: "unknown_tool",
-//             response: { error: "Missing tool name in function call" },
-//           },
-//         });
-//         continue;
-//       }
-
-//       if (!allowedTools.includes(toolName as any)) {
-//         toolParts.push({
-//           functionResponse: {
-//             name: toolName,
-//             response: { error: "Tool not allowed" },
-//           },
-//         });
-//         continue;
-//       }
-
-//       const mcpResult = await client.callTool({
-//         name: toolName,
-//         arguments: fc?.args ?? {},
-//       });
-
-//       toolParts.push({
-//         functionResponse: {
-//           name: toolName,
-//           response: { result: extractTextFromMcpResult(mcpResult) },
-//         },
-//       });
-//     }
-
-//     // 3) Send tool responses back to Gemini to finalize answer
-//     const final = await genai.models.generateContent({
-//       model: GEMINI_MODEL,
-//       contents: [
-//         { role: "user", parts: [{ text: message }] },
-//         { role: "model", parts: modelParts },
-//         { role: "tool", parts: toolParts },
-//       ],
-//       config: { tools: geminiTools },
-//     });
-
-//     res.json({ text: final.text ?? "" });
-//   } catch (err: any) {
-//     console.error(err);
-//     res.status(500).json({ error: err?.message || "Gemini error" });
-//   }
-// });
+      const response = await openai.responses.create({
+        model: OPENAI_MODEL,
+        input,
+        previous_response_id: prevId,
+        tools: [
+          {
+            type: "mcp", // OpenAI Hosted MCP
+            server_label: "disabled-services",
+            server_url: OPENAI_MCP_SERVER_URL,
+            allowed_tools: ["get_user_info", "create_parking_card", "create_vacation_request"], 
+            require_approval: "never", 
+          },
+        ],
+        store: true,
+      });
+      openaiPrevResponseId.set(cid, response.id);
+      res.json({ conversationId: cid, text: response.output_text });
+    } catch (err: any) {
+      console.error(err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
 
 app.get("/health", (_, res) => res.json({ ok: true }));
 
 app.listen(PORT, () => {
   console.log(`AI Gateway listening on http://localhost:${PORT}`);
-  console.log(`MCP_SERVER_URL (gateway->mcp): ${MCP_SERVER_URL}`);
-  console.log(`OPENAI_MCP_SERVER_URL (OpenAI->mcp): ${OPENAI_MCP_SERVER_URL}`);
+  console.log(`Groq Model: ${GROQ_MODEL}`);
 });

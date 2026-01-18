@@ -12,6 +12,7 @@
     "@modelcontextprotocol/sdk": "^1.22.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
+    "groq-sdk": "^0.37.0",
     "openai": "^4.70.0"
   },
   "devDependencies": {
