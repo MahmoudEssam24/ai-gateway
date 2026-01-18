@@ -112,63 +112,84 @@ const tools: Groq.Chat.ChatCompletionTool[] = [
 
 /** ---- Groq Endpoint ---- */
 const groq = new Groq({ apiKey: GROQ_API_KEY });
+// ai-gateway/src/server.ts
+
+// ... imports (express, cors, Groq, dotenv, etc) ...
+
+// 1. In-Memory Storage for Conversation History
+// Key = conversationId (from client), Value = Message Array
+const conversationStore = new Map<string, Groq.Chat.ChatCompletionMessageParam[]>();
 
 app.post("/chat/openai", async (req, res) => {
   try {
-    const { message, systemPrompt } = req.body;
+    const { message, systemPrompt, conversationId } = req.body;
 
-    // 1. Build initial messages
-    const messages: Groq.Chat.ChatCompletionMessageParam[] = [];
-    if (systemPrompt) {
-      messages.push({ role: "system", content: systemPrompt });
+    if (!conversationId) {
+      return res.status(400).json({ error: "conversationId is required" });
     }
+
+    // 2. Retrieve existing history OR initialize new
+    let messages = conversationStore.get(conversationId);
+
+    // If this is the FIRST time we see this ID, initialize the array
+    if (!messages) {
+      messages = [];
+      if (systemPrompt) {
+        messages.push({ role: "system", content: systemPrompt });
+      }
+    }
+
+    // 3. Add the user's NEW message
     messages.push({ role: "user", content: message });
 
-    // 2. First call to Groq (ask for intent/tools)
-    // Note: We do NOT stream here to simplify the tool-loop logic
+    // 4. Call Groq with the FULL history
     const runner = await groq.chat.completions.create({
       model: GROQ_MODEL,
       messages: messages,
       tools: tools,
       tool_choice: "auto",
-      temperature: 1,
+      temperature: 0.7, 
       max_completion_tokens: 1024,
-      top_p: 1,
     });
 
     const responseMessage = runner.choices[0].message;
 
-    // 3. Check if Groq wants to run tools
+    // 5. Check for Tool Calls
     if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-      // Add the model's request to history
+      
+      // Append the model's request to history
       messages.push(responseMessage);
 
       const client = await getMcpClient();
 
-      // 4. Loop through tool calls and execute via MCP
       for (const toolCall of responseMessage.tool_calls) {
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
 
-        console.log(`[Groq] Calling MCP tool: ${functionName}`);
+        // Optional: Manual validation for specific tools
+        if (functionName === "get_user_info" && !functionArgs.userId) {
+           messages.push({
+            tool_call_id: toolCall.id,
+            role: "tool",
+            content: JSON.stringify({ error: "Missing required argument 'userId'." }),
+          });
+          continue; 
+        }
 
         try {
-          // Execute via MCP Client
+          // Execute Tool
           const mcpResult = await client.callTool({
             name: functionName,
             arguments: functionArgs,
           });
 
-          const toolOutput = extractTextFromMcpResult(mcpResult);
-
-          // Append tool result to history
+          // Append Tool Result
           messages.push({
             tool_call_id: toolCall.id,
             role: "tool",
-            content: toolOutput,
+            content: extractTextFromMcpResult(mcpResult),
           });
         } catch (error: any) {
-          console.error(`Error executing ${functionName}:`, error);
           messages.push({
             tool_call_id: toolCall.id,
             role: "tool",
@@ -177,19 +198,32 @@ app.post("/chat/openai", async (req, res) => {
         }
       }
 
-      // 5. Second call to Groq (with tool results)
+      // 6. Follow-up call to Groq (with tool results)
       const finalResponse = await groq.chat.completions.create({
         model: GROQ_MODEL,
         messages: messages,
       });
+      
+      const finalContent = finalResponse.choices[0].message;
+      
+      // Save final answer to history
+      messages.push(finalContent);
+      conversationStore.set(conversationId, messages);
 
       return res.json({
-        text: finalResponse.choices[0].message.content,
+        conversationId, // Echo it back
+        text: finalContent.content,
       });
     }
 
-    // No tools called, just return text
-    res.json({ text: responseMessage.content });
+    // 7. No tools used - Standard Response
+    messages.push(responseMessage);
+    conversationStore.set(conversationId, messages);
+
+    res.json({ 
+        conversationId,
+        text: responseMessage.content 
+    });
 
   } catch (err: any) {
     console.error("Groq Error:", err);
