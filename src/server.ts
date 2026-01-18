@@ -7,7 +7,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 // --- Configuration ---
 const PORT = Number(process.env.PORT ?? "3002");
-const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? "http://localhost:3001/mcp"; 
+const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? "https://mcp-server-production-b54a.up.railway.app/mcp";
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 // The specific model you requested
 const GROQ_MODEL = process.env.GROQ_MODEL ?? "meta-llama/llama-4-scout-17b-16e-instruct";
