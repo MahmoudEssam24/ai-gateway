@@ -200,46 +200,46 @@ app.post("/chat/groq", async (req, res) => {
 
 /** ---- Existing OpenAI Endpoint (Optional / Fallback) ---- */
 // You can keep this if you still want to support OpenAI
-if (OPENAI_API_KEY) {
-  const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-  const openaiPrevResponseId = new Map<string, string>();
+// if (OPENAI_API_KEY) {
+//   const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+//   const openaiPrevResponseId = new Map<string, string>();
 
-  app.post("/chat/openai", async (req, res) => {
-    try {
-      const { conversationId, systemPrompt, message } = req.body;
-      const cid = conversationId ?? "default";
-      const prevId = openaiPrevResponseId.get(cid);
+//   app.post("/chat/openai", async (req, res) => {
+//     try {
+//       const { conversationId, systemPrompt, message } = req.body;
+//       const cid = conversationId ?? "default";
+//       const prevId = openaiPrevResponseId.get(cid);
 
-      const input = systemPrompt?.trim()
-        ? [
-          { role: "system" as const, content: systemPrompt.trim() },
-          { role: "user" as const, content: message },
-        ]
-        : message;
+//       const input = systemPrompt?.trim()
+//         ? [
+//           { role: "system" as const, content: systemPrompt.trim() },
+//           { role: "user" as const, content: message },
+//         ]
+//         : message;
 
-      const response = await openai.responses.create({
-        model: OPENAI_MODEL,
-        input,
-        previous_response_id: prevId,
-        tools: [
-          {
-            type: "mcp", // OpenAI Hosted MCP
-            server_label: "disabled-services",
-            server_url: OPENAI_MCP_SERVER_URL,
-            allowed_tools: ["get_user_info", "create_parking_card", "create_vacation_request"], 
-            require_approval: "never", 
-          },
-        ],
-        store: true,
-      });
-      openaiPrevResponseId.set(cid, response.id);
-      res.json({ conversationId: cid, text: response.output_text });
-    } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-}
+//       const response = await openai.responses.create({
+//         model: OPENAI_MODEL,
+//         input,
+//         previous_response_id: prevId,
+//         tools: [
+//           {
+//             type: "mcp", // OpenAI Hosted MCP
+//             server_label: "disabled-services",
+//             server_url: OPENAI_MCP_SERVER_URL,
+//             allowed_tools: ["get_user_info", "create_parking_card", "create_vacation_request"], 
+//             require_approval: "never", 
+//           },
+//         ],
+//         store: true,
+//       });
+//       openaiPrevResponseId.set(cid, response.id);
+//       res.json({ conversationId: cid, text: response.output_text });
+//     } catch (err: any) {
+//       console.error(err);
+//       res.status(500).json({ error: err.message });
+//     }
+//   });
+// }
 
 app.get("/health", (_, res) => res.json({ ok: true }));
 
