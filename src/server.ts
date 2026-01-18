@@ -3,7 +3,6 @@ import cors from "cors";
 import Groq from "groq-sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import "dotenv/config";
 
 const PORT = Number(process.env.PORT ?? "3002");
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? "https://mcp-server-production-b54a.up.railway.app/mcp"; 
