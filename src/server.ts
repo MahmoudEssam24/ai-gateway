@@ -113,7 +113,7 @@ const tools: Groq.Chat.ChatCompletionTool[] = [
 /** ---- Groq Endpoint ---- */
 const groq = new Groq({ apiKey: GROQ_API_KEY });
 
-app.post("/chat/groq", async (req, res) => {
+app.post("/chat/openai", async (req, res) => {
   try {
     const { message, systemPrompt } = req.body;
 
