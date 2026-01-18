@@ -9,7 +9,7 @@ const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? "https://mcp-server-product
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 // ✅ User Requirement: Keep the specific model
-const GROQ_MODEL = process.env.GROQ_MODEL ?? "meta-llama/llama-4-scout-17b-16e-instruct";
+const GROQ_MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
 
 if (!GROQ_API_KEY) {
   console.error("❌ Error: GROQ_API_KEY is missing.");
