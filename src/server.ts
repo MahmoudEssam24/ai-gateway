@@ -24,7 +24,7 @@ const GROQ_MCP_SERVER_URL =
 // Groq config
 const GROQ_API_KEY = requireEnv("GROQ_API_KEY");
 const GROQ_MODEL =
-  process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
+  process.env.GROQ_MODEL ?? "meta-llama/llama-4-scout-17b-16e-instruct";
 
 // Optional default system prompt (you still override it per persona)
 const DEFAULT_SYSTEM_PROMPT = `You are an assistant for a POC that automates backend actions via MCP tools.
