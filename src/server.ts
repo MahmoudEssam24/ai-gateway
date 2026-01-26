@@ -197,6 +197,7 @@ app.post("/chat/openai", async (req, res) => {
     // Convert your history to OpenAI messages
     // (Compatibility API supports system/user/assistant; keep system as "system")
     const messages: any[] = history.map((m) => ({ role: m.role, content: m.content }));
+    
 
     // Run a small tool loop (multi-step tool use)
     let finalText = "";
@@ -212,7 +213,7 @@ app.post("/chat/openai", async (req, res) => {
 
       const choice = completion.choices?.[0];
       const assistantMsg = choice?.message;
-
+      console.log("Messages are: ", assistantMsg);
       const assistantText = (assistantMsg?.content as string) ?? "";
       const toolCalls = (assistantMsg as any)?.tool_calls ?? [];
 
